@@ -10,7 +10,7 @@ pipeline {
 
     environment {
         // DockerHub repo
-        DOCKER_IMAGE_REPO = 'ksanthosh200/swe645-site'
+        DOCKER_IMAGE_REPO = 'ksanthosh200/swe645-site:1.0'
         // Timestamp tag (e.g. 20251003173045)
         BUILD_TIMESTAMP   = "${new Date().format('yyyyMMddHHmmss')}"
     }
