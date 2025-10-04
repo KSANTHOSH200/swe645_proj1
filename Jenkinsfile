@@ -1,71 +1,68 @@
 // File: Jenkinsfile
-// Description: CI/CD pipeline with Docker build/push, Kubernetes deploy, and post actions
+// Description: CI/CD pipeline with Docker build/push to DockerHub, and Kubernetes deploy using kubeconfig
 
 pipeline {
     agent any
 
+    options { timestamps() }
+
     environment {
-        // Jenkins credentials:
-        // - docker-credentials: Username/Password for Docker Hub
-        // - kubeconfig: Secret file credential containing your kubeconfig
-        DOCKERHUB_CREDENTIALS = credentials('docker-credentials')
-        KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
-
-        // Docker image coordinates (change if you use a different repo/name)
+        // Image repo (update if needed)
         DOCKER_IMAGE_REPO = 'ksanthosh200/swe645-site'
-
-        // Timestamp tag (e.g., 20251003T051200)
-        BUILD_TIMESTAMP = "${new Date().format('yyyyMMdd\'T\'HHmmss')}"
+        // Timestamp tag
+        BUILD_TIMESTAMP   = "${new Date().format('yyyyMMddHHmmss')}"
     }
 
     stages {
-        stage('Build Survey Image') {
+
+        stage("Checkout Code") {
             steps {
-                script {
-                    // Pull source (repo must contain a Dockerfile at the project root)
-                    checkout scm
+                checkout scm
+                sh 'echo "Building image with tag: ${BUILD_TIMESTAMP}"'
+            }
+        }
 
-                    // Show tag being built
-                    sh 'echo "Building tag: ${BUILD_TIMESTAMP}"'
+        stage("Docker Build & Push") {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-credentials', // Jenkins ID for DockerHub creds
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh <<'EOF'
+set -euo pipefail
 
-                    // Docker Hub login using Jenkins credentials
-                    sh """
-                      echo "${DOCKERHUB_CREDENTIALS_PSW}" | docker login -u "${DOCKERHUB_CREDENTIALS_USR}" --password-stdin
-                    """
+# DockerHub login (masked in Jenkins logs)
+echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                    // Build image with timestamp tag and also tag as latest
-                    sh """
-                      docker build -t ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} .
-                      docker tag  ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} ${DOCKER_IMAGE_REPO}:latest
-                    """
+# Build & tag image
+docker build -t ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} .
+docker tag ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} ${DOCKER_IMAGE_REPO}:latest
+
+# Push to DockerHub
+docker push ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}
+docker push ${DOCKER_IMAGE_REPO}:latest
+EOF
                 }
             }
         }
 
-        stage('Push image to Docker Hub') {
+        stage("Deploy to Kubernetes") {
             steps {
-                sh """
-                  docker push ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}
-                  docker push ${DOCKER_IMAGE_REPO}:latest
-                """
-            }
-        }
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                    sh <<'EOF'
+set -euo pipefail
+export KUBECONFIG="$KUBECONFIG_FILE"
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                // Use kubeconfig secret file as KUBECONFIG for kubectl
-                withEnv(["KUBECONFIG=${KUBECONFIG_CREDENTIALS}"]) {
-                    script {
-                        // Update the running Deployment's container image
-                        // NOTE:
-                        //   - Deployment name: "deployment"  (from your cluster)
-                        //   - Container name:  "container-0" (as shown in your workload)
-                        //   - Namespace: "default" (adjust if different)
-                        sh """
-                          kubectl set image deployment/deployment container-0=${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} -n default
-                          kubectl rollout status deployment/deployment -n default --timeout=180s
-                        """
-                    }
+# Check current context from kubeconfig
+kubectl config current-context
+
+# Update deployment with new image (deployment & container names must exist in your cluster)
+kubectl set image deployment/deployment container-0=${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} -n default
+
+# Wait for rollout to complete
+kubectl rollout status deployment/deployment -n default --timeout=180s
+EOF
                 }
             }
         }
@@ -73,15 +70,14 @@ pipeline {
 
     post {
         success {
-            echo "Deployment Successful: ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}"
+            echo "✅ Deployment Successful: ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}"
         }
         failure {
-            echo "Deployment Failed. Check console output for details."
+            echo "❌ Deployment Failed. Check logs."
         }
         always {
-            echo 'Cleaning Up ...'
-            // Optional: Docker cleanup (uncomment if desired)
-            // sh 'docker image prune -f || true'
+            sh 'docker logout || true'
+            echo "Pipeline finished."
         }
     }
 }
