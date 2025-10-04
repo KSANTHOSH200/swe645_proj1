@@ -1,0 +1,9 @@
+
+/* SWE645 Assignment 1 - styles.css
+   Purpose: Minor custom styles for the assignment
+*/
+.hero-image{
+  width: 260px;
+  height: 260px;
+  object-fit: cover;
+}

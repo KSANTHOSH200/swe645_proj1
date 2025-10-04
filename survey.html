@@ -1,0 +1,190 @@
+<!--
+  SWE645 Assignment 1 - Part 2
+  Author: Santhosh Kakarla
+  File: survey.html
+  Purpose: Student Survey form with required fields and raffle validation
+  Date: 2025-09-11
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SWE645 • Student Survey</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+  <div class="container">
+    <a class="navbar-brand fw-bold" href="index.html">SWE645 • Santhosh Kakarla</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarsExample07" aria-controls="navbarsExample07" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarsExample07">
+      <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+        <li class="nav-item"><a class="nav-link" href="index.html">Home</a></li>
+        <li class="nav-item"><a class="nav-link active" href="survey.html">Student Survey</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<main class="container my-5">
+  <h1 class="mb-4 fw-bold">Student Survey</h1>
+  <p class="text-muted">Please complete the following fields. <span class="text-danger">*</span> indicates a required field.</p>
+
+  <form id="survey-form" novalidate class="needs-validation">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label for="firstName" class="form-label">First Name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="firstName" name="firstName" required>
+        <div class="invalid-feedback">First name is required.</div>
+      </div>
+      <div class="col-md-6">
+        <label for="lastName" class="form-label">Last Name <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="lastName" name="lastName" required>
+        <div class="invalid-feedback">Last name is required.</div>
+      </div>
+
+      <div class="col-md-12">
+        <label for="street" class="form-label">Street Address <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="street" name="street" required>
+        <div class="invalid-feedback">Street address is required.</div>
+      </div>
+      <div class="col-md-6">
+        <label for="city" class="form-label">City <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="city" name="city" required>
+        <div class="invalid-feedback">City is required.</div>
+      </div>
+      <div class="col-md-3">
+        <label for="state" class="form-label">State <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="state" name="state" required>
+        <div class="invalid-feedback">State is required.</div>
+      </div>
+      <div class="col-md-3">
+        <label for="zip" class="form-label">ZIP <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="zip" name="zip" inputmode="numeric" pattern="\d{5}(-\d{4})?" required>
+        <div class="form-text">Format: 12345 or 12345-6789</div>
+        <div class="invalid-feedback">Enter a valid ZIP code.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label for="phone" class="form-label">Telephone Number <span class="text-danger">*</span></label>
+        <input type="tel" class="form-control" id="phone" name="phone"
+               pattern="^\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$" required>
+        <div class="form-text">Examples: 703-555-1234 or (703) 555-1234</div>
+        <div class="invalid-feedback">Enter a valid phone number.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label for="email" class="form-label">Email <span class="text-danger">*</span></label>
+        <input type="email" class="form-control" id="email" name="email" required>
+        <div class="invalid-feedback">Enter a valid email.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label for="surveyDate" class="form-label">Date of Survey <span class="text-danger">*</span></label>
+        <input type="date" class="form-control" id="surveyDate" name="surveyDate" required>
+        <div class="invalid-feedback">Date of survey is required.</div>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label fw-semibold">What did you like most about the campus? (check all that apply)</label>
+        <div class="row">
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedStudents" name="liked" value="students">
+              <label class="form-check-label" for="likedStudents">Students</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedLocation" name="liked" value="location">
+              <label class="form-check-label" for="likedLocation">Location</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedCampus" name="liked" value="campus">
+              <label class="form-check-label" for="likedCampus">Campus</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedAtmosphere" name="liked" value="atmosphere">
+              <label class="form-check-label" for="likedAtmosphere">Atmosphere</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedDorms" name="liked" value="dorm rooms">
+              <label class="form-check-label" for="likedDorms">Dorm Rooms</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="likedSports" name="liked" value="sports">
+              <label class="form-check-label" for="likedSports">Sports</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label fw-semibold">How did you become interested in the university? <span class="text-danger">*</span></label>
+        <div class="d-flex flex-wrap gap-3">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="interest" id="interestFriends" value="friends" required>
+            <label class="form-check-label" for="interestFriends">Friends</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="interest" id="interestTV" value="television" required>
+            <label class="form-check-label" for="interestTV">Television</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="interest" id="interestInternet" value="internet" required>
+            <label class="form-check-label" for="interestInternet">Internet</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="interest" id="interestOther" value="other" required>
+            <label class="form-check-label" for="interestOther">Other</label>
+          </div>
+        </div>
+        <div class="invalid-feedback d-block" id="interestError" style="display:none;">Please select one option.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label for="likelihood" class="form-label">Likelihood to recommend this school <span class="text-danger">*</span></label>
+        <select class="form-select" id="likelihood" name="likelihood" required>
+          <option value="" selected disabled>Choose...</option>
+          <option>Very Likely</option>
+          <option>Likely</option>
+          <option>Unlikely</option>
+        </select>
+        <div class="invalid-feedback">Please choose an option.</div>
+      </div>
+
+      <div class="col-md-12">
+        <label for="raffle" class="form-label">Raffle (enter at least 10 comma-separated numbers, each 1–100) <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="raffle" name="raffle" required placeholder="e.g., 5, 12, 19, 33, 47, 59, 61, 72, 88, 100">
+        <div class="invalid-feedback" id="raffleError">Please enter at least 10 valid numbers (1–100), separated by commas.</div>
+      </div>
+
+      <div class="col-md-12">
+        <label for="comments" class="form-label">Additional Comments</label>
+        <textarea class="form-control" id="comments" name="comments" rows="4" placeholder="Your feedback..."></textarea>
+      </div>
+
+      <div class="col-12 d-flex gap-2 mt-2">
+        <button class="btn btn-primary" type="submit">Submit</button>
+        <button class="btn btn-outline-secondary" type="reset">Cancel</button>
+      </div>
+    </div>
+  </form>
+</main>
+
+<footer class="bg-dark text-light py-4 mt-auto">
+  <div class="container d-flex justify-content-between align-items-center">
+    <span>© 2025 Santhosh Kakarla</span>
+    <a href="index.html" class="btn btn-outline-light btn-sm">Back to Home</a>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
