@@ -1,9 +1,8 @@
 // File: Jenkinsfile
-// Description: CI/CD pipeline with Docker build/push, Kubernetes deploy, and post actions
+// Description: CI/CD pipeline with Docker build/push, Kubernetes deploy, and post actions (auto-downloads kubectl)
 
 pipeline {
     agent any
-
     options { timestamps() }
 
     environment {
@@ -16,13 +15,11 @@ pipeline {
         stage("Build Survey Image") {
             steps {
                 script {
-                    // Fetch the current SCM
                     checkout scm
                     sh 'echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"'
 
-                    // Secure Docker login + build (no insecure interpolation)
                     withCredentials([usernamePassword(
-                        credentialsId: 'docker-credentials',     // <-- Jenkins credential (Docker Hub user + RW token)
+                        credentialsId: 'docker-credentials',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
@@ -31,7 +28,7 @@ pipeline {
                           docker logout || true
                           echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                          # Build the Docker image (fixed tag) and tag as latest
+                          # Build & tag
                           docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                           docker tag  ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
                         '''
@@ -49,10 +46,7 @@ pipeline {
                 )]) {
                     sh '''
                       set -euo pipefail
-                      # Ensure we are logged in (token may not persist across stages)
                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
-                      # Push the Docker image (fixed tag) and latest
                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
                       docker push ${IMAGE_NAME}:latest
                     '''
@@ -60,26 +54,46 @@ pipeline {
             }
         }
 
-        stage("Deploy to kubernetes") {
+        // NEW: download kubectl into the workspace if missing
+        stage("Prepare kubectl") {
             steps {
-                // Use kubeconfig secret file (e.g., your instance1.yaml uploaded as ID 'kubeconfig')
+                sh '''
+                  set -euo pipefail
+                  mkdir -p .bin
+                  if [ ! -x .bin/kubectl ]; then
+                    echo "kubectl not found; downloading to .bin/ ..."
+                    VER="$(curl -Ls https://dl.k8s.io/release/stable.txt)"
+                    curl -L -o .bin/kubectl "https://dl.k8s.io/release/${VER}/bin/linux/amd64/kubectl"
+                    chmod +x .bin/kubectl
+                  fi
+                  ./.bin/kubectl version --client --output=yaml || true
+                '''
+            }
+        }
+
+        stage("Deploy to kubernetes") {
+            environment {
+                // Prepend local kubectl for this stage
+                PATH = "${env.WORKSPACE}/.bin:${env.PATH}"
+            }
+            steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
                     sh '''
                       set -euo pipefail
                       export KUBECONFIG="$KUBECONFIG_FILE"
 
-                      # (Optional) Print current context/namespace for sanity
+                      # (Optional) sanity info
+                      kubectl version --client=true --output=yaml || true
                       kubectl config current-context || true
+
                       NS="$(kubectl config view --minify -o jsonpath='{..namespace}' || true)"
-                      if [ -z "$NS" ]; then NS=default; fi
+                      [ -z "$NS" ] && NS=default
                       echo "Using namespace: $NS"
 
-                      # Update your existing Deployment/Container
-                      # Adjust names if your deployment/container differ
+                      # Update Deployment/Container (change names if yours differ)
                       kubectl set image deployment/deployment container-0=${IMAGE_NAME}:${IMAGE_TAG} -n "$NS"
-
-                      # Wait for rollout to finish
                       kubectl rollout status deployment/deployment -n "$NS" --timeout=180s
+                      kubectl get pods -n "$NS" -o wide
                     '''
                 }
             }
@@ -87,15 +101,15 @@ pipeline {
     }
 
     post {
+        always {
+            sh 'docker logout || true'
+            echo 'Cleaning Up ...'
+        }
         success {
             echo 'Deployment Successful!'
         }
         failure {
             echo 'Deployment Failed.'
-        }
-        always {
-            sh 'docker logout || true'
-            echo 'Cleaning Up ...'
         }
     }
 }
