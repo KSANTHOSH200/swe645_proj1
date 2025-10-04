@@ -1,116 +1,87 @@
 // File: Jenkinsfile
-// Description: Secure CI/CD with Docker build/push and Kubernetes deploy using masked credentials
+// Description: CI/CD pipeline with Docker build/push, Kubernetes deploy, and post actions
 
 pipeline {
-  agent any
+    agent any
 
-  options {
-    timestamps()
-  }
+    environment {
+        // Jenkins credentials:
+        // - docker-credentials: Username/Password for Docker Hub
+        // - kubeconfig: Secret file credential containing your kubeconfig
+        DOCKERHUB_CREDENTIALS = credentials('docker-credentials')
+        KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
 
-  // Poll Git every minute (optional – remove if using webhooks)
-  triggers {
-    pollSCM('* * * * *')
-  }
+        // Docker image coordinates (change if you use a different repo/name)
+        DOCKER_IMAGE_REPO = 'ksanthosh200/swe645-site'
 
-  environment {
-    // Image coordinates (edit repo to yours)
-    DOCKER_IMAGE_REPO = 'ksanthosh200/swe645-site'
-    // Timestamped tag like 20251003T134501
-    BUILD_TIMESTAMP   = "${new Date().format('yyyyMMdd\'T\'HHmmss')}"
-    K8S_NAMESPACE     = 'default'
-    K8S_DEPLOYMENT    = 'deployment'     // your Deployment name
-    K8S_CONTAINER     = 'container-0'    // your container name inside the Deployment
-  }
-
-  stages {
-
-    stage('Checkout') {
-      steps {
-        checkout scm
-        sh 'echo "Building tag: ${BUILD_TIMESTAMP}"'
-      }
+        // Timestamp tag (e.g., 20251003T051200)
+        BUILD_TIMESTAMP = "${new Date().format('yyyyMMdd\'T\'HHmmss')}"
     }
 
-    stage('Docker Login, Build & Tag (secure)') {
-      steps {
-        // Inject Docker Hub username/password as masked env vars
-        withCredentials([usernamePassword(
-          credentialsId: 'docker-credentials',
-          usernameVariable: 'DOCKER_USER',
-          passwordVariable: 'DOCKER_PASS'
-        )]) {
-          sh '''
-            set -euo pipefail
+    stages {
+        stage('Build Survey Image') {
+            steps {
+                script {
+                    // Pull source (repo must contain a Dockerfile at the project root)
+                    checkout scm
 
-            # Login securely (password masked in logs)
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    // Show tag being built
+                    sh 'echo "Building tag: ${BUILD_TIMESTAMP}"'
 
-            # Build image and tag with timestamp + latest
-            docker build -t ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} .
-            docker tag  ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} ${DOCKER_IMAGE_REPO}:latest
+                    // Docker Hub login using Jenkins credentials
+                    sh """
+                      echo "${DOCKERHUB_CREDENTIALS_PSW}" | docker login -u "${DOCKERHUB_CREDENTIALS_USR}" --password-stdin
+                    """
 
-            # Show resulting images (no secrets)
-            docker image ls ${DOCKER_IMAGE_REPO}
-          '''
+                    // Build image with timestamp tag and also tag as latest
+                    sh """
+                      docker build -t ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} .
+                      docker tag  ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} ${DOCKER_IMAGE_REPO}:latest
+                    """
+                }
+            }
         }
-      }
-    }
 
-    stage('Push to Docker Hub (secure)') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'docker-credentials',
-          usernameVariable: 'DOCKER_USER',
-          passwordVariable: 'DOCKER_PASS'
-        )]) {
-          sh '''
-            set -euo pipefail
-            # Ensure we are logged in (token is short-lived across stages on some setups)
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
-            docker push ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}
-            docker push ${DOCKER_IMAGE_REPO}:latest
-          '''
+        stage('Push image to Docker Hub') {
+            steps {
+                sh """
+                  docker push ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}
+                  docker push ${DOCKER_IMAGE_REPO}:latest
+                """
+            }
         }
-      }
-    }
 
-    stage('Deploy to Kubernetes (secure kubeconfig)') {
-      steps {
-        // Provide kubeconfig as a temp file path env var (masked)
-        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-          sh '''
-            set -euo pipefail
-            export KUBECONFIG="$KUBECONFIG_FILE"
-
-            # Update image on the deployment’s container
-            kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} -n ${K8S_NAMESPACE}
-
-            # Wait for rollout to complete
-            kubectl rollout status deployment/${K8S_DEPLOYMENT} -n ${K8S_NAMESPACE} --timeout=180s
-
-            # Show pods for verification (no secrets)
-            kubectl get pods -n ${K8S_NAMESPACE} -o wide
-          '''
+        stage('Deploy to Kubernetes') {
+            steps {
+                // Use kubeconfig secret file as KUBECONFIG for kubectl
+                withEnv(["KUBECONFIG=${KUBECONFIG_CREDENTIALS}"]) {
+                    script {
+                        // Update the running Deployment's container image
+                        // NOTE:
+                        //   - Deployment name: "deployment"  (from your cluster)
+                        //   - Container name:  "container-0" (as shown in your workload)
+                        //   - Namespace: "default" (adjust if different)
+                        sh """
+                          kubectl set image deployment/deployment container-0=${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP} -n default
+                          kubectl rollout status deployment/deployment -n default --timeout=180s
+                        """
+                    }
+                }
+            }
         }
-      }
     }
-  }
 
-  post {
-    always {
-      // Best-effort logout to reduce secret exposure surface
-      sh '''
-        docker logout || true
-      '''
-      echo 'Pipeline finished.'
+    post {
+        success {
+            echo "Deployment Successful: ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}"
+        }
+        failure {
+            echo "Deployment Failed. Check console output for details."
+        }
+        always {
+            echo 'Cleaning Up ...'
+            // Optional: Docker cleanup (uncomment if desired)
+            // sh 'docker image prune -f || true'
+        }
     }
-    success {
-      echo "✅ Deployment Successful: ${DOCKER_IMAGE_REPO}:${BUILD_TIMESTAMP}"
-    }
-    failure {
-      echo "❌ Deployment Failed. Check stage logs above."
-    }
-  }
 }
