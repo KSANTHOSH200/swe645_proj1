@@ -1,5 +1,6 @@
 // File: Jenkinsfile
-// Description: CI/CD with dynamic K8s discovery (context/namespace/deployment/container) from kubeconfig
+// Description: CI/CD (Docker build/push with fixed tag) + K8s deploy using kubeconfig.
+//              Downloads kubectl into workspace if it's not present.
 
 pipeline {
   agent any
@@ -7,20 +8,22 @@ pipeline {
 
   environment {
     IMAGE_NAME = 'ksanthosh200/swe645-site'
-    IMAGE_TAG  = '1.0'   // fixed tag as requested
+    IMAGE_TAG  = '1.0'                 // fixed tag
+    K8S_NAMESPACE  = 'default'         // only used for messages; discovery handled at runtime if needed
   }
 
   stages {
-    stage('Checkout') {
+    stage('Checkout Code') {
       steps {
         checkout scm
+        sh 'echo "Building: ${IMAGE_NAME}:${IMAGE_TAG}"'
       }
     }
 
-    stage('Docker Build & Push') {
+    stage('Docker Build & Push (fixed tag)') {
       steps {
         withCredentials([usernamePassword(
-          credentialsId: 'docker-credentials',   // Jenkins credential ID
+          credentialsId: 'docker-credentials',   // Docker Hub username + RW token
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
@@ -40,80 +43,56 @@ pipeline {
       }
     }
 
-    stage('Discover K8s from kubeconfig') {
+    stage('Prepare kubectl (workspace local)') {
       steps {
-        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-          script {
-            // Export kubeconfig for subsequent kubectl calls in this stage
-            sh '''
-              set -euo pipefail
-              export KUBECONFIG="$KUBECONFIG_FILE"
-
-              echo "Current context:"
-              kubectl config current-context || true
-
-              # Read namespace from kubeconfig (minified view). May be empty.
-              NS="$(kubectl config view --minify --output 'jsonpath={..namespace}' || true)"
-              if [ -z "$NS" ]; then
-                NS=default
-              fi
-              echo "Using namespace: $NS"
-
-              # Discover first deployment in the namespace
-              DEPLOY="$(kubectl get deploy -n "$NS" -o jsonpath='{.items[0].metadata.name}')"
-              if [ -z "$DEPLOY" ]; then
-                echo "ERROR: No deployments found in namespace '$NS'." >&2
-                exit 2
-              fi
-              echo "Found deployment: $DEPLOY"
-
-              # Discover first container name in that deployment
-              CONTAINER="$(kubectl get deploy "$DEPLOY" -n "$NS" -o jsonpath='{.spec.template.spec.containers[0].name}')"
-              if [ -z "$CONTAINER" ]; then
-                echo "ERROR: Could not determine container name for deployment '$DEPLOY' in namespace '$NS'." >&2
-                exit 3
-              fi
-              echo "Found container: $CONTAINER"
-
-              # Persist discoveries to a file to source later stages
-              cat > .k8s_env <<EOF
-export KUBECONFIG="${KUBECONFIG_FILE}"
-export K8S_NAMESPACE="${NS}"
-export K8S_DEPLOYMENT="${DEPLOY}"
-export K8S_CONTAINER="${CONTAINER}"
-EOF
-            '''
-
-            // Load the discovered vars into the Jenkins environment for later usage
-            def envVars = sh(returnStdout: true, script: "cat .k8s_env").trim()
-            for (line in envVars.split("\\r?\\n")) {
-              def parts = line.replace("export ","").split("=", 2)
-              if (parts.size() == 2) {
-                def key = parts[0].trim()
-                def val = parts[1].trim().replaceAll('^\"|\"$', '')
-                env."${key}" = val
-              }
-            }
-
-            echo "K8s target -> namespace=${env.K8S_NAMESPACE}, deployment=${env.K8S_DEPLOYMENT}, container=${env.K8S_CONTAINER}"
-          }
-        }
+        sh '''
+          set -euo pipefail
+          mkdir -p .bin
+          if [ ! -x .bin/kubectl ]; then
+            echo "kubectl not found; downloading to .bin/ ..."
+            VER="$(curl -Ls https://dl.k8s.io/release/stable.txt)"
+            curl -L -o .bin/kubectl "https://dl.k8s.io/release/${VER}/bin/linux/amd64/kubectl"
+            chmod +x .bin/kubectl
+            echo "kubectl version (client):"
+            ./.bin/kubectl version --client --output=yaml || true
+          else
+            echo "kubectl already present at .bin/kubectl"
+            ./.bin/kubectl version --client --output=yaml || true
+          fi
+        '''
       }
     }
 
-    stage('Kubernetes Deploy') {
+    stage('Deploy to Kubernetes') {
+      environment {
+        // Prepend our local kubectl to PATH only for this stage
+        PATH = "${env.WORKSPACE}/.bin:${env.PATH}"
+      }
       steps {
-        // Use the discovered values saved in env.* by the previous stage
-        sh '''
-          set -euo pipefail
-          . ./.k8s_env
+        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+          sh '''
+            set -euo pipefail
+            export KUBECONFIG="$KUBECONFIG_FILE"
 
-          echo "Deploying ${IMAGE_NAME}:${IMAGE_TAG} to ${K8S_NAMESPACE}/${K8S_DEPLOYMENT} (container: ${K8S_CONTAINER})"
+            echo "Current kubectl client:"
+            kubectl version --client=true --output=yaml || true
 
-          kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${IMAGE_NAME}:${IMAGE_TAG} -n ${K8S_NAMESPACE}
-          kubectl rollout status deployment/${K8S_DEPLOYMENT} -n ${K8S_NAMESPACE} --timeout=180s
-          kubectl get pods -n ${K8S_NAMESPACE} -o wide
-        '''
+            echo "Current context:"
+            kubectl config current-context || true
+
+            # Optional: show namespace derived from kubeconfig (defaults to 'default' if empty)
+            NS="$(kubectl config view --minify -o jsonpath='{..namespace}' || true)"
+            if [ -z "$NS" ]; then NS=default; fi
+            echo "Using namespace: $NS"
+
+            # Update your existing Deployment/Container with fixed tag
+            # (Change names below if your deployment or container differs)
+            kubectl set image deployment/deployment container-0=${IMAGE_NAME}:${IMAGE_TAG} -n "$NS"
+
+            kubectl rollout status deployment/deployment -n "$NS" --timeout=180s
+            kubectl get pods -n "$NS" -o wide
+          '''
+        }
       }
     }
   }
